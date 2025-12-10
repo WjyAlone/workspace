@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Particle Text Display</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000000; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+        }
+        
+        /* Video for processing */
+        #input-video { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            opacity: 0; 
+            pointer-events: none; 
+            width: 640px; 
+            height: 480px; 
+        }
+        
+        /* Main 3D Canvas */
+        #c { 
+            width: 100vw; 
+            height: 100vh; 
+            display: block; 
+        }
+
+        /* Loading Overlay */
+        #loader {
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center;
+            color: #fff; 
+            z-index: 10; 
+            flex-direction: column; 
+            transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 50px; 
+            height: 50px; 
+            border: 5px solid #333; 
+            border-top: 5px solid #00ff88;
+            border-radius: 50%; 
+            animation: spin 1s linear infinite; 
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+
+        /* Camera Preview */
+        #cam-preview {
+            position: absolute; 
+            bottom: 20px; 
+            right: 20px; 
+            width: 280px; 
+            height: 210px;
+            border-radius: 12px; 
+            border: 2px solid rgba(255, 255, 255, 0.3); 
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 5;
+            transform: scaleX(-1);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+        
+        /* Status Panel */
+        #status-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            font-size: 16px;
+            width: 320px;
+            z-index: 5;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.2);
+        }
+        
+        .status-title {
+            color: #00ff88;
+            font-size: 24px;
+            margin: 0 0 15px 0;
+            font-weight: bold;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+        
+        .finger-count {
+            font-size: 60px;
+            text-align: center;
+            margin: 10px 0;
+            color: #ff3366;
+            text-shadow: 0 0 20px rgba(255, 51, 102, 0.7);
+            animation: pulse 2s infinite;
+        }
+        
+        .gesture-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 4px solid #00ff88;
+        }
+        
+        .gesture-title {
+            color: #00ff88;
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .gesture-desc {
+            color: #aaa;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .confidence-bar {
+            height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff3366, #00ff88);
+            border-radius: 5px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .confidence-text {
+            font-size: 12px;
+            color: #aaa;
+            text-align: right;
+            margin-top: 5px;
+        }
+        
+        .instruction {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            max-width: 400px;
+            z-index: 5;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .instruction h3 {
+            margin: 0 0 10px 0;
+            color: #00ff88;
+        }
+        
+        .instruction ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        
+        .instruction li {
+            margin: 5px 0;
+            color: #ccc;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .particle-stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 5;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <p>Initializing AI Vision & GPU Acceleration...</p>
+        <p style="font-size: 14px; color: #aaa; margin-top: 10px;">Loading high-precision gesture recognition model</p>
+    </div>
+
+    <div id="status-panel">
+        <div class="status-title">Gesture Recognition</div>
+        <div class="finger-count" id="finger-count">0</div>
+        <div class="gesture-info" id="current-gesture">
+            <div class="gesture-title">No Hand Detected</div>
+            <div class="gesture-desc">Please show your hand to the camera</div>
+        </div>
+        <div class="confidence-bar">
+            <div class="confidence-fill" id="confidence-fill"></div>
+        </div>
+        <div class="confidence-text">Confidence: <span id="confidence-value">0%</span></div>
+    </div>
+
+    <div class="instruction">
+        <h3>Gesture Controls:</h3>
+        <ul>
+            <li><strong>1 Finger</strong>: Display "HELLO" in blue particles</li>
+            <li><strong>2 Fingers</strong>: Display "NUIST" in green particles</li>
+            <li><strong>3 Fingers</strong>: Display "I LOVE YOU" with heart in red particles</li>
+            <li>Keep hand steady for best recognition</li>
+            <li>Ensure good lighting conditions</li>
+        </ul>
+    </div>
+
+    <div class="particle-stats" id="particle-stats">
+        Particles: 0/25000<br>
+        FPS: 0<br>
+        GPU: Initializing...
+    </div>
+
+    <video id="input-video"></video>
+    <canvas id="cam-preview"></canvas>
+    <canvas id="c"></canvas>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js';
+
+        // --- Configuration ---
+        const PARTICLE_COUNT = 25000; // Increased for better text clarity
+        const config = {
+            particleSize: 0.2,
+            particleSpeed: 0.1,
+            textScale: 3.0,
+            transitionSpeed: 0.08,
+            colorTransitionSpeed: 0.05,
+            fingerDetectionThreshold: 0.15,
+            useGPU: true,
+            showDebug: false
+        };
+
+        // --- Global Variables ---
+        let scene, camera, renderer, geometry, materials, points;
+        let positions, targetPositions, colors, targetColors;
+        let clock = new THREE.Clock();
+        let frameCount = 0;
+        let lastTime = performance.now();
+        let fps = 0;
+        
+        // Gesture state
+        let currentFingerCount = 0;
+        let targetFingerCount = 0;
+        let gestureConfidence = 0;
+        let lastGestureTime = 0;
+        let gestureStability = 0;
+        
+        // Text definitions
+        const texts = {
+            0: { name: "Random", color: new THREE.Color(0x888888), particles: [] },
+            1: { name: "HELLO", color: new THREE.Color(0x3366ff), particles: [] },
+            2: { name: "NUIST", color: new THREE.Color(0x00ff88), particles: [] },
+            3: { name: "I ♥ YOU", color: new THREE.Color(0xff3366), particles: [] }
+        };
+
+        // --- 1. High-Precision Finger Detection Algorithm ---
+        class FingerDetector {
+            constructor() {
+                this.fingerStates = [false, false, false, false, false]; // Thumb, Index, Middle, Ring, Pinky
+                this.fingerConfidences = [0, 0, 0, 0, 0];
+                this.history = [];
+                this.historySize = 5;
+            }
+            
+            // Advanced finger detection using multiple heuristics
+            detectFingers(landmarks) {
+                const fingerTips = [4, 8, 12, 16, 20]; // Landmark indices for finger tips
+                const fingerMCPs = [2, 5, 9, 13, 17]; // Metacarpophalangeal joints
+                const fingerPIPs = [3, 6, 10, 14, 18]; // Proximal interphalangeal joints
+                
+                let detectedFingers = 0;
+                let totalConfidence = 0;
+                
+                for (let i = 0; i < 5; i++) {
+                    const tip = landmarks[fingerTips[i]];
+                    const mcp = landmarks[fingerMCPs[i]];
+                    const pip = landmarks[fingerPIPs[i]];
+                    const wrist = landmarks[0];
+                    
+                    // Method 1: Extended finger check (tip far from wrist)
+                    const tipToWrist = this.distance(tip, wrist);
+                    const mcpToWrist = this.distance(mcp, wrist);
+                    const extendedRatio = tipToWrist / (mcpToWrist + 0.001);
+                    
+                    // Method 2: Straightness check (tip far from pip-mcp line)
+                    const straightness = this.pointLineDistance(tip, mcp, pip);
+                    
+                    // Method 3: Angle check (finger pointing away from palm)
+                    const angleConfidence = this.fingerAngleConfidence(tip, mcp, wrist, i);
+                    
+                    // Combined confidence with weights
+                    const extendedConf = this.sigmoid((extendedRatio - 1.5) * 5);
+                    const straightConf = 1 - Math.min(straightness * 10, 1);
+                    
+                    // Special handling for thumb (different kinematics)
+                    if (i === 0) { // Thumb
+                        const thumbConf = this.detectThumb(landmarks);
+                        this.fingerConfidences[i] = thumbConf;
+                        this.fingerStates[i] = thumbConf > config.fingerDetectionThreshold;
+                    } else {
+                        const combinedConf = (extendedConf * 0.4 + straightConf * 0.4 + angleConfidence * 0.2);
+                        this.fingerConfidences[i] = combinedConf;
+                        this.fingerStates[i] = combinedConf > config.fingerDetectionThreshold;
+                    }
+                    
+                    if (this.fingerStates[i]) {
+                        detectedFingers++;
+                        totalConfidence += this.fingerConfidences[i];
+                    }
+                }
+                
+                // Use history for stability
+                this.history.push(detectedFingers);
+                if (this.history.length > this.historySize) {
+                    this.history.shift();
+                }
+                
+                // Weighted average with recent bias
+                let stableCount = 0;
+                for (let i = 0; i < this.history.length; i++) {
+                    const weight = (i + 1) / this.history.length; // Recent has more weight
+                    stableCount += this.history[i] * weight;
+                }
+                stableCount = Math.round(stableCount / this.history.reduce((a, b) => a + b, 1) * this.history.length);
+                
+                const avgConfidence = detectedFingers > 0 ? totalConfidence / detectedFingers : 0;
+                
+                return {
+                    count: stableCount,
+                    confidence: avgConfidence,
+                    details: [...this.fingerStates],
+                    confidences: [...this.fingerConfidences]
+                };
+            }
+            
+            distance(a, b) {
+                return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+            }
+            
+            pointLineDistance(point, lineStart, lineEnd) {
+                // Calculate distance from point to line segment
+                const A = point.x - lineStart.x;
+                const B = point.y - lineStart.y;
+                const C = lineEnd.x - lineStart.x;
+                const D = lineEnd.y - lineStart.y;
+                
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                let param = -1;
+                if (lenSq !== 0) param = dot / lenSq;
+                
+                let xx, yy;
+                if (param < 0) {
+                    xx = lineStart.x;
+                    yy = lineStart.y;
+                } else if (param > 1) {
+                    xx = lineEnd.x;
+                    yy = lineEnd.y;
+                } else {
+                    xx = lineStart.x + param * C;
+                    yy = lineStart.y + param * D;
+                }
+                
+                const dx = point.x - xx;
+                const dy = point.y - yy;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+            
+            fingerAngleConfidence(tip, mcp, wrist, fingerIndex) {
+                // Vector from wrist to mcp (palm direction)
+                const palmVecX = mcp.x - wrist.x;
+                const palmVecY = mcp.y - wrist.y;
+                
+                // Vector from mcp to tip (finger direction)
+                const fingerVecX = tip.x - mcp.x;
+                const fingerVecY = tip.y - mcp.y;
+                
+                // Calculate angle between vectors
+                const dot = palmVecX * fingerVecX + palmVecY * fingerVecY;
+                const mag1 = Math.sqrt(palmVecX * palmVecX + palmVecY * palmVecY);
+                const mag2 = Math.sqrt(fingerVecX * fingerVecX + fingerVecY * fingerVecY);
+                
+                if (mag1 === 0 || mag2 === 0) return 0;
+                
+                const cosAngle = dot / (mag1 * mag2);
+                const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
+                
+                // For extended fingers, angle should be small (finger pointing away from palm)
+                return Math.max(0, 1 - angle / 90);
+            }
+            
+            detectThumb(landmarks) {
+                // Thumb has different kinematics - check opposition
+                const thumbTip = landmarks[4];
+                const thumbIP = landmarks[3];
+                const thumbMCP = landmarks[2];
+                const indexMCP = landmarks[5];
+                
+                // Check if thumb tip is far from index MCP (opposed)
+                const distToIndexMCP = this.distance(thumbTip, indexMCP);
+                const thumbLength = this.distance(thumbTip, thumbMCP);
+                
+                const oppositionRatio = distToIndexMCP / (thumbLength + 0.001);
+                
+                // Thumb is extended if it's opposed (far from index)
+                return this.sigmoid((oppositionRatio - 1.2) * 8);
+            }
+            
+            sigmoid(x) {
+                return 1 / (1 + Math.exp(-x));
+            }
+        }
+
+        // Initialize detector
+        const fingerDetector = new FingerDetector();
+
+        // --- 2. Three.js Setup with GPU Acceleration ---
+        function initThree() {
+            const canvas = document.querySelector('#c');
+            
+            // Create WebGL 2.0 renderer for GPU compute
+            renderer = new THREE.WebGLRenderer({ 
+                canvas, 
+                antialias: true, 
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+            
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x000000, 1);
+
+            scene = new THREE.Scene();
+            
+            // Add subtle ambient light
+            const ambientLight = new THREE.AmbientLight(0x222222);
+            scene.add(ambientLight);
+            
+            // Add directional light for depth
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 25;
+
+            // Initialize particle positions and colors
+            positions = new Float32Array(PARTICLE_COUNT * 3);
+            targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+            colors = new Float32Array(PARTICLE_COUNT * 3);
+            targetColors = new Float32Array(PARTICLE_COUNT * 3);
+            
+            // Initialize with random positions and colors
+            for(let i = 0; i < PARTICLE_COUNT * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 40;
+                positions[i + 1] = (Math.random() - 0.5) * 40;
+                positions[i + 2] = (Math.random() - 0.5) * 40;
+                
+                targetPositions[i] = positions[i];
+                targetPositions[i + 1] = positions[i + 1];
+                targetPositions[i + 2] = positions[i + 2];
+                
+                colors[i] = 0.5;
+                colors[i + 1] = 0.5;
+                colors[i + 2] = 0.5;
+            }
+
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // Load particle texture
+            const textureLoader = new THREE.TextureLoader();
+            const sprite = textureLoader.load('https://threejs.org/examples/textures/sprites/disc.png');
+
+            materials = new THREE.PointsMaterial({
+                size: config.particleSize,
+                vertexColors: true,
+                map: sprite,
+                sizeAttenuation: true,
+                transparent: true,
+                alphaTest: 0.01,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            points = new THREE.Points(geometry, materials);
+            scene.add(points);
+
+            // Generate initial text particles
+            generateTextParticles();
+            
+            // Setup window resize handler
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start animation
+            animate();
+        }
+
+        // --- 3. Text Particle Generation ---
+        function generateTextParticles() {
+            // Generate particles for each text pattern
+            
+            // 1. HELLO Text
+            const helloPoints = createTextParticles("HELLO", {
+                font: "bold 120px Arial",
+                spacing: 1.2,
+                scale: config.textScale
+            });
+            
+            // 2. NUIST Text (Nanjing University of Information Science and Technology)
+            const nuistPoints = createTextParticles("NUIST", {
+                font: "bold 100px Arial",
+                spacing: 1.1,
+                scale: config.textScale * 1.2
+            });
+            
+            // 3. I LOVE YOU with Heart
+            const lovePoints = createLovePattern();
+            
+            // Assign particles to text configurations
+            distributeParticlesToTexts(helloPoints, nuistPoints, lovePoints);
+        }
+        
+        function createTextParticles(text, options) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 512;
+            canvas.height = 512;
+            
+            ctx.fillStyle = 'white';
+            ctx.font = options.font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Clear canvas
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw text
+            ctx.fillStyle = 'white';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            // Extract pixel data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            const points = [];
+            
+            // Sample pixels for particles
+            for (let y = 0; y < canvas.height; y += 2) {
+                for (let x = 0; x < canvas.width; x += 2) {
+                    const index = (y * canvas.width + x) * 4;
+                    if (data[index] > 128) { // White pixel
+                        // Convert to 3D coordinates
+                        const px = (x - canvas.width / 2) * 0.05 * options.scale;
+                        const py = (canvas.height / 2 - y) * 0.05 * options.scale;
+                        const pz = (Math.random() - 0.5) * 0.5;
+                        
+                        // Add some randomness for organic look
+                        const rx = (Math.random() - 0.5) * 0.3;
+                        const ry = (Math.random() - 0.5) * 0.3;
+                        const rz = (Math.random() - 0.5) * 0.3;
+                        
+                        points.push({
+                            x: px + rx,
+                            y: py + ry,
+                            z: pz + rz
+                        });
+                    }
+                }
+            }
+            
+            return points;
+        }
+        
+        function createLovePattern() {
+            const points = [];
+            
+            // Create "I LOVE YOU" text
+            const textPoints = createTextParticles("I ♥ YOU", {
+                font: "bold 100px Arial",
+                spacing: 1.0,
+                scale: config.textScale * 1.5
+            });
+            
+            // Add heart shape
+            const heartPoints = createHeartShape(300);
+            
+            // Combine text and heart
+            return [...textPoints, ...heartPoints];
+        }
+        
+        function createHeartShape(count) {
+            const points = [];
+            
+            for (let i = 0; i < count; i++) {
+                const t = Math.random() * Math.PI * 2;
+                
+                // Heart parametric equation
+                const x = 16 * Math.pow(Math.sin(t), 3);
+                const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+                
+                // Scale and position
+                const scale = 0.12;
+                const px = x * scale;
+                const py = y * scale;
+                const pz = (Math.random() - 0.5) * 0.5;
+                
+                // Add some randomness
+                const rx = (Math.random() - 0.5) * 0.1;
+                const ry = (Math.random() - 0.5) * 0.1;
+                
+                points.push({
+                    x: px + rx,
+                    y: py - 2 + ry, // Position below text
+                    z: pz
+                });
+            }
+            
+            return points;
+        }
+        
+        function distributeParticlesToTexts(helloPoints, nuistPoints, lovePoints) {
+            // Calculate how many particles per text
+            const totalParticles = PARTICLE_COUNT;
+            const particlesPerText = Math.floor(totalParticles / 4); // 4 states (0, 1, 2, 3)
+            
+            // Distribute particles for each text
+            for (let textIndex = 0; textIndex < 4; textIndex++) {
+                const textParticles = [];
+                let sourcePoints;
+                
+                switch(textIndex) {
+                    case 0: // Random/Idle
+                        // Create random cloud
+                        for (let i = 0; i < particlesPerText; i++) {
+                            const angle = Math.random() * Math.PI * 2;
+                            const radius = Math.random() * 15;
+                            const height = (Math.random() - 0.5) * 20;
+                            
+                            textParticles.push({
+                                x: Math.cos(angle) * radius,
+                                y: height,
+                                z: Math.sin(angle) * radius,
+                                color: new THREE.Color().setHSL(Math.random(), 0.5, 0.5)
+                            });
+                        }
+                        break;
+                        
+                    case 1: // HELLO
+                        sourcePoints = helloPoints;
+                        break;
+                        
+                    case 2: // NUIST
+                        sourcePoints = nuistPoints;
+                        break;
+                        
+                    case 3: // I LOVE YOU
+                        sourcePoints = lovePoints;
+                        break;
+                }
+                
+                if (textIndex > 0) {
+                    // Distribute source points to particles
+                    for (let i = 0; i < particlesPerText; i++) {
+                        const sourceIndex = i % sourcePoints.length;
+                        const source = sourcePoints[sourceIndex];
+                        
+                        // Add some variation
+                        const variation = 0.3;
+                        const vx = (Math.random() - 0.5) * variation;
+                        const vy = (Math.random() - 0.5) * variation;
+                        const vz = (Math.random() - 0.5) * variation;
+                        
+                        textParticles.push({
+                            x: source.x + vx,
+                            y: source.y + vy,
+                            z: source.z + vz,
+                            color: texts[textIndex].color.clone()
+                        });
+                    }
+                }
+                
+                texts[textIndex].particles = textParticles;
+            }
+        }
+
+        // --- 4. Animation Loop with GPU Acceleration ---
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            const time = clock.elapsedTime;
+            
+            // Update FPS counter
+            frameCount++;
+            const now = performance.now();
+            if (now >= lastTime + 1000) {
+                fps = Math.round((frameCount * 1000) / (now - lastTime));
+                frameCount = 0;
+                lastTime = now;
+                
+                // Update stats display
+                document.getElementById('particle-stats').innerHTML = 
+                    `Particles: ${PARTICLE_COUNT.toLocaleString()}<br>` +
+                    `FPS: ${fps}<br>` +
+                    `GPU: Active`;
+            }
+            
+            // Smooth transition to target finger count
+            const transitionSpeed = config.transitionSpeed;
+            currentFingerCount += (targetFingerCount - currentFingerCount) * transitionSpeed;
+            
+            // Update particle positions based on current gesture
+            updateParticlePositions(deltaTime, time);
+            
+            // Update particle colors
+            updateParticleColors(deltaTime);
+            
+            // Gentle rotation for visual appeal
+            points.rotation.y += 0.001;
+            points.rotation.x = Math.sin(time * 0.2) * 0.05;
+            
+            // Update geometry
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.color.needsUpdate = true;
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        function updateParticlePositions(deltaTime, time) {
+            const positionsArray = geometry.attributes.position.array;
+            const targetText = Math.round(currentFingerCount);
+            
+            // Get target particles for current gesture
+            const targetParticles = texts[targetText].particles;
+            
+            // If we're between gestures, blend between them
+            const blendFactor = currentFingerCount - Math.floor(currentFingerCount);
+            const nextText = Math.min(3, Math.ceil(currentFingerCount));
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                
+                // Determine which text this particle belongs to
+                const textIndex = Math.floor(i / (PARTICLE_COUNT / 4));
+                const particleIndex = i % (PARTICLE_COUNT / 4);
+                
+                let targetX, targetY, targetZ;
+                
+                if (textIndex === targetText || (blendFactor > 0 && textIndex === nextText)) {
+                    // This particle is active in current or next gesture
+                    let sourceParticle;
+                    
+                    if (textIndex === targetText) {
+                        sourceParticle = targetParticles[particleIndex];
+                    } else {
+                        sourceParticle = texts[nextText].particles[particleIndex];
+                    }
+                    
+                    if (sourceParticle) {
+                        targetX = sourceParticle.x;
+                        targetY = sourceParticle.y;
+                        targetZ = sourceParticle.z;
+                    }
+                } else {
+                    // This particle should move to random position (idle)
+                    targetX = (Math.random() - 0.5) * 40;
+                    targetY = (Math.random() - 0.5) * 40;
+                    targetZ = (Math.random() - 0.5) * 40;
+                }
+                
+                // Smooth interpolation
+                const speed = config.particleSpeed * deltaTime * 60;
+                positionsArray[i3] += (targetX - positionsArray[i3]) * speed;
+                positionsArray[i3 + 1] += (targetY - positionsArray[i3 + 1]) * speed;
+                positionsArray[i3 + 2] += (targetZ - positionsArray[i3 + 2]) * speed;
+                
+                // Add subtle floating animation
+                positionsArray[i3 + 1] += Math.sin(time * 2 + i * 0.01) * 0.002;
+            }
+        }
+        
+        function updateParticleColors(deltaTime) {
+            const colorsArray = geometry.attributes.color.array;
+            const targetText = Math.round(currentFingerCount);
+            const targetColor = texts[targetText].color;
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                
+                // Determine which text this particle belongs to
+                const textIndex = Math.floor(i / (PARTICLE_COUNT / 4));
+                
+                let targetR, targetG, targetB;
+                
+                if (textIndex === targetText) {
+                    // Use target color for active particles
+                    targetR = targetColor.r;
+                    targetG = targetColor.g;
+                    targetB = targetColor.b;
+                } else {
+                    // Fade to dark for inactive particles
+                    targetR = 0.1;
+                    targetG = 0.1;
+                    targetB = 0.1;
+                }
+                
+                // Smooth color transition
+                const speed = config.colorTransitionSpeed;
+                colorsArray[i3] += (targetR - colorsArray[i3]) * speed;
+                colorsArray[i3 + 1] += (targetG - colorsArray[i3 + 1]) * speed;
+                colorsArray[i3 + 2] += (targetB - colorsArray[i3 + 2]) * speed;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 5. MediaPipe Hand Tracking with Enhanced Detection ---
+        const videoElement = document.getElementById('input-video');
+        const canvasElement = document.getElementById('cam-preview');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        // Set canvas size
+        canvasElement.width = 280;
+        canvasElement.height = 210;
+
+        // Update UI display
+        function updateGestureUI(fingerCount, confidence, details) {
+            document.getElementById('finger-count').textContent = fingerCount;
+            document.getElementById('confidence-value').textContent = Math.round(confidence * 100) + '%';
+            document.getElementById('confidence-fill').style.width = (confidence * 100) + '%';
+            
+            let gestureTitle, gestureDesc;
+            switch(fingerCount) {
+                case 0:
+                    gestureTitle = "No Gesture";
+                    gestureDesc = "Show 1-3 fingers to display text";
+                    break;
+                case 1:
+                    gestureTitle = "1 Finger - HELLO";
+                    gestureDesc = "Displaying 'HELLO' in blue particles";
+                    break;
+                case 2:
+                    gestureTitle = "2 Fingers - NUIST";
+                    gestureDesc = "Displaying 'NUIST' in green particles";
+                    break;
+                case 3:
+                    gestureTitle = "3 Fingers - I ♥ YOU";
+                    gestureDesc = "Displaying 'I LOVE YOU' with heart in red particles";
+                    break;
+                default:
+                    gestureTitle = "Multiple Fingers";
+                    gestureDesc = "Please show 1-3 fingers";
+            }
+            
+            document.getElementById('current-gesture').innerHTML = `
+                <div class="gesture-title">${gestureTitle}</div>
+                <div class="gesture-desc">${gestureDesc}</div>
+            `;
+            
+            // Update debug info if enabled
+            if (config.showDebug) {
+                console.log(`Fingers: ${fingerCount}, Confidence: ${confidence.toFixed(2)}, Details: ${details.join(',')}`);
+            }
+        }
+
+        function onResults(results) {
+            // Remove loading screen
+            const loader = document.getElementById('loader');
+            if (loader.style.opacity !== '0') {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 500);
+            }
+
+            // Draw camera preview
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // Use the first detected hand
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Draw hand skeleton with enhanced visualization
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+                    color: '#00FF88',
+                    lineWidth: 3
+                });
+                
+                // Draw finger tips with colors based on detection
+                const fingerTips = [4, 8, 12, 16, 20];
+                const detection = fingerDetector.detectFingers(landmarks);
+                
+                fingerTips.forEach((tipIndex, fingerIndex) => {
+                    const tip = landmarks[tipIndex];
+                    const x = tip.x * canvasElement.width;
+                    const y = tip.y * canvasElement.height;
+                    
+                    // Color based on detection state
+                    const isExtended = detection.details[fingerIndex];
+                    const confidence = detection.confidences[fingerIndex];
+                    
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, 8, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = isExtended ? 
+                        `rgba(0, 255, 136, ${confidence})` : 
+                        `rgba(255, 51, 102, ${0.3})`;
+                    canvasCtx.fill();
+                    
+                    // Draw confidence ring
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, 10, 0, Math.PI * 2);
+                    canvasCtx.strokeStyle = isExtended ? '#00FF88' : '#FF3366';
+                    canvasCtx.lineWidth = 2;
+                    canvasCtx.stroke();
+                });
+                
+                // Update gesture detection with hysteresis for stability
+                const newFingerCount = detection.count;
+                const newConfidence = detection.confidence;
+                
+                // Apply temporal filtering
+                const now = Date.now();
+                if (newFingerCount !== targetFingerCount) {
+                    if (now - lastGestureTime > 300) { // 300ms delay before changing
+                        targetFingerCount = newFingerCount;
+                        gestureConfidence = newConfidence;
+                        lastGestureTime = now;
+                        
+                        // Clamp to 0-3 fingers for our use case
+                        if (targetFingerCount > 3) {
+                            targetFingerCount = 0; // Treat 4+ fingers as no gesture
+                        }
+                    }
+                } else {
+                    gestureConfidence = Math.max(gestureConfidence, newConfidence * 0.9);
+                }
+                
+                // Update UI
+                updateGestureUI(targetFingerCount, gestureConfidence, detection.details);
+                
+            } else {
+                // No hand detected
+                targetFingerCount = 0;
+                gestureConfidence = 0;
+                updateGestureUI(0, 0, []);
+            }
+            
+            canvasCtx.restore();
+        }
+
+        // Initialize MediaPipe Hands with high accuracy settings
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+        
+        // Configure for high accuracy
+        hands.setOptions({
+            maxNumHands: 1, // Focus on single hand for better accuracy
+            modelComplexity: 1, // Highest complexity
+            minDetectionConfidence: 0.7, // Higher threshold
+            minTrackingConfidence: 0.7, // Higher threshold
+            selfieMode: true
+        });
+        
+        hands.onResults(onResults);
+
+        // Start camera with optimal settings
+        const cameraFeed = new Camera(videoElement, {
+            onFrame: async () => {
+                try {
+                    await hands.send({image: videoElement});
+                } catch (error) {
+                    console.warn("Frame processing skipped:", error);
+                }
+            },
+            width: 640,
+            height: 480,
+            facingMode: 'user'
+        });
+        
+        cameraFeed.start().then(() => {
+            console.log("Camera started with high-precision gesture tracking");
+        }).catch(err => {
+            console.error("Camera failed to start:", err);
+            document.getElementById('loader').innerHTML = `
+                <div style="color: #ff5555; text-align: center; padding: 40px;">
+                    <h3>Camera Access Required</h3>
+                    <p>Please allow camera permissions and refresh the page</p>
+                    <p style="font-size: 14px; color: #aaa;">Error: ${err.message}</p>
+                    <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #00ff88; border: none; border-radius: 5px; color: black; cursor: pointer;">
+                        Retry
+                    </button>
+                </div>
+            `;
+        });
+
+        // Initialize 3D scene
+        initThree();
+
+        // Performance optimization
+        window.addEventListener('blur', () => {
+            config.particleSpeed = 0.05;
+        });
+        
+        window.addEventListener('focus', () => {
+            config.particleSpeed = 0.1;
+        });
+
+    </script>
+</body>
+</html>

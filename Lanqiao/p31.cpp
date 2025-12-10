@@ -1,15 +1,16 @@
 #include <bits/stdc++.h>
-
 using namespace std;
+
+
 
 int main(int argc, char const *argv[])
 {
-	int d;
-	cin >> d;
-	int week = d%7;
-	if (week==0)
+	int num[9];
+	for (int i = 0; i < 9; ++i)
 	{
-		cout << 7;
-	}else cout << d%7;
+		num[i] = i+1;
+
+	}
+
 	return 0;
 }

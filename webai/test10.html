@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High Accuracy Gesture Text Display</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000000; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+        }
+        
+        #input-video { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            opacity: 0; 
+            pointer-events: none; 
+            width: 640px; 
+            height: 480px; 
+        }
+        
+        #c { 
+            width: 100vw; 
+            height: 100vh; 
+            display: block; 
+        }
+
+        #loader {
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center;
+            color: #fff; 
+            z-index: 10; 
+            flex-direction: column; 
+            transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 50px; 
+            height: 50px; 
+            border: 5px solid #333; 
+            border-top: 5px solid #ff3366;
+            border-radius: 50%; 
+            animation: spin 1s linear infinite; 
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+
+        #cam-preview {
+            position: absolute; 
+            bottom: 20px; 
+            right: 20px; 
+            width: 240px; 
+            height: 180px;
+            border-radius: 8px; 
+            border: 2px solid rgba(255, 255, 255, 0.3); 
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 5;
+            transform: scaleX(-1);
+        }
+        
+        #status-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            width: 200px;
+            z-index: 5;
+            border: 1px solid rgba(255, 51, 102, 0.5);
+        }
+        
+        .finger-count {
+            font-size: 48px;
+            text-align: center;
+            margin: 10px 0;
+            color: #ff3366;
+            font-weight: bold;
+        }
+        
+        .gesture-status {
+            text-align: center;
+            margin: 5px 0;
+            color: #aaa;
+        }
+        
+        .confidence {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .confidence-bar {
+            height: 100%;
+            background: #00ff88;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .fingers-detected {
+            display: flex;
+            justify-content: space-around;
+            margin: 10px 0;
+        }
+        
+        .finger-indicator {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #fff;
+        }
+        
+        .finger-active {
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88;
+        }
+        
+        .finger-inactive {
+            background: #ff3366;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <p>Loading High Accuracy Gesture Recognition...</p>
+    </div>
+
+    <div id="status-panel">
+        <div class="finger-count" id="finger-count">0</div>
+        <div class="gesture-status" id="gesture-status">No Hand</div>
+        <div class="confidence">
+            <div class="confidence-bar" id="confidence-bar"></div>
+        </div>
+        <div class="gesture-status" id="confidence-text">Confidence: 0%</div>
+        <div class="fingers-detected">
+            <div class="finger-indicator" id="thumb">T</div>
+            <div class="finger-indicator" id="index">I</div>
+            <div class="finger-indicator" id="middle">M</div>
+            <div class="finger-indicator" id="ring">R</div>
+            <div class="finger-indicator" id="pinky">P</div>
+        </div>
+    </div>
+
+    <video id="input-video"></video>
+    <canvas id="cam-preview"></canvas>
+    <canvas id="c"></canvas>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Configuration ---
+        const PARTICLE_COUNT = 8000; // 减少粒子数量，使文字更清晰
+        const config = {
+            particleSize: 0.25,
+            transitionSpeed: 0.15,
+            colorTransitionSpeed: 0.1,
+            textScale: 1.5, // 更小的文字
+            stabilityThreshold: 0.8,
+            minConfidence: 0.7
+        };
+
+        // --- Global Variables ---
+        let scene, camera, renderer, geometry, materials, points;
+        let positions, targetPositions, colors, targetColors;
+        let clock = new THREE.Clock();
+        
+        // Gesture state
+        let currentFingerCount = 0;
+        let targetFingerCount = 0;
+        let gestureConfidence = 0;
+        let gestureHistory = [];
+        const HISTORY_SIZE = 10;
+        
+        // Text configurations
+        const texts = {
+            0: { 
+                name: "Idle", 
+                color: new THREE.Color(0x444444),
+                particles: []
+            },
+            1: { 
+                name: "HELLO", 
+                color: new THREE.Color(0x3366ff),
+                particles: []
+            },
+            2: { 
+                name: "NUIST", 
+                color: new THREE.Color(0x00cc66),
+                particles: []
+            },
+            3: { 
+                name: "I LOVE YOU", 
+                color: new THREE.Color(0xff3366),
+                particles: []
+            }
+        };
+
+        // --- High Accuracy Finger Detection ---
+        class HighAccuracyFingerDetector {
+            constructor() {
+                this.fingerStates = [false, false, false, false, false];
+                this.fingerConfidences = [0, 0, 0, 0, 0];
+                this.history = [];
+            }
+            
+            detectFingers(landmarks) {
+                // Enhanced detection using multiple methods
+                const fingerTips = [4, 8, 12, 16, 20];
+                const fingerPIPs = [3, 6, 10, 14, 18];
+                const fingerMCPs = [2, 5, 9, 13, 17];
+                const wrist = landmarks[0];
+                
+                let totalConfidence = 0;
+                let detectedCount = 0;
+                
+                for (let i = 0; i < 5; i++) {
+                    const tip = landmarks[fingerTips[i]];
+                    const pip = landmarks[fingerPIPs[i]];
+                    const mcp = landmarks[fingerMCPs[i]];
+                    
+                    // Method 1: Distance ratio (tip to wrist vs MCP to wrist)
+                    const tipToWrist = this.distance(tip, wrist);
+                    const mcpToWrist = this.distance(mcp, wrist);
+                    const distanceRatio = tipToWrist / (mcpToWrist + 0.001);
+                    
+                    // Method 2: Finger extension (tip far from PIP)
+                    const tipToPip = this.distance(tip, pip);
+                    const pipToMcp = this.distance(pip, mcp);
+                    const extensionRatio = tipToPip / (pipToMcp + 0.001);
+                    
+                    // Method 3: Angle check (finger pointing away)
+                    const angleConfidence = this.calculateAngleConfidence(tip, mcp, wrist);
+                    
+                    // Combined confidence with optimized weights
+                    let confidence = 0;
+                    
+                    if (i === 0) { // Thumb - special handling
+                        confidence = this.detectThumb(landmarks);
+                    } else {
+                        // Weighted average of methods
+                        const distScore = this.sigmoid((distanceRatio - 1.3) * 6);
+                        const extScore = this.sigmoid((extensionRatio - 0.8) * 8);
+                        const angleScore = angleConfidence;
+                        
+                        confidence = distScore * 0.4 + extScore * 0.4 + angleScore * 0.2;
+                    }
+                    
+                    this.fingerConfidences[i] = confidence;
+                    this.fingerStates[i] = confidence > 0.6;
+                    
+                    if (this.fingerStates[i]) {
+                        detectedCount++;
+                        totalConfidence += confidence;
+                    }
+                }
+                
+                // Apply temporal filtering for stability
+                this.history.push(detectedCount);
+                if (this.history.length > HISTORY_SIZE) {
+                    this.history.shift();
+                }
+                
+                // Mode-based detection (most frequent value in history)
+                const mode = this.getMode(this.history);
+                const avgConfidence = detectedCount > 0 ? totalConfidence / detectedCount : 0;
+                
+                return {
+                    count: mode,
+                    confidence: avgConfidence,
+                    details: [...this.fingerStates],
+                    confidences: [...this.fingerConfidences]
+                };
+            }
+            
+            distance(a, b) {
+                const dx = a.x - b.x;
+                const dy = a.y - b.y;
+                const dz = a.z - b.z;
+                return Math.sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            
+            calculateAngleConfidence(tip, mcp, wrist) {
+                // Vector from wrist to mcp (palm direction)
+                const palmX = mcp.x - wrist.x;
+                const palmY = mcp.y - wrist.y;
+                
+                // Vector from mcp to tip (finger direction)
+                const fingerX = tip.x - mcp.x;
+                const fingerY = tip.y - mcp.y;
+                
+                // Calculate angle
+                const dot = palmX * fingerX + palmY * fingerY;
+                const palmLength = Math.sqrt(palmX * palmX + palmY * palmY);
+                const fingerLength = Math.sqrt(fingerX * fingerX + fingerY * fingerY);
+                
+                if (palmLength === 0 || fingerLength === 0) return 0;
+                
+                const cosAngle = dot / (palmLength * fingerLength);
+                const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
+                
+                // Extended finger: small angle (pointing away from palm)
+                return Math.max(0, 1 - angle / 60);
+            }
+            
+            detectThumb(landmarks) {
+                const thumbTip = landmarks[4];
+                const thumbIP = landmarks[3];
+                const thumbMCP = landmarks[2];
+                const indexMCP = landmarks[5];
+                
+                // Thumb opposition check
+                const tipToIndexMCP = this.distance(thumbTip, indexMCP);
+                const thumbLength = this.distance(thumbTip, thumbMCP);
+                
+                // Thumb extension check
+                const tipToIP = this.distance(thumbTip, thumbIP);
+                const IPToMCP = this.distance(thumbIP, thumbMCP);
+                
+                const oppositionRatio = tipToIndexMCP / (thumbLength + 0.001);
+                const extensionRatio = tipToIP / (IPToMCP + 0.001);
+                
+                const oppositionScore = this.sigmoid((oppositionRatio - 1.0) * 8);
+                const extensionScore = this.sigmoid((extensionRatio - 0.7) * 10);
+                
+                return (oppositionScore * 0.6 + extensionScore * 0.4);
+            }
+            
+            sigmoid(x) {
+                return 1 / (1 + Math.exp(-x));
+            }
+            
+            getMode(array) {
+                const frequency = {};
+                let maxFreq = 0;
+                let mode = array[0];
+                
+                for (const num of array) {
+                    frequency[num] = (frequency[num] || 0) + 1;
+                    if (frequency[num] > maxFreq) {
+                        maxFreq = frequency[num];
+                        mode = num;
+                    }
+                }
+                
+                return mode;
+            }
+        }
+
+        const fingerDetector = new HighAccuracyFingerDetector();
+
+        // --- Three.js Setup ---
+        function initThree() {
+            const canvas = document.querySelector('#c');
+            
+            renderer = new THREE.WebGLRenderer({ 
+                canvas, 
+                antialias: true,
+                alpha: true
+            });
+            
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x000000, 1);
+
+            scene = new THREE.Scene();
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 30;
+
+            // Initialize particle arrays
+            positions = new Float32Array(PARTICLE_COUNT * 3);
+            targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+            colors = new Float32Array(PARTICLE_COUNT * 3);
+            targetColors = new Float32Array(PARTICLE_COUNT * 3);
+            
+            // Initialize with small centered positions (no random spread)
+            for(let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                // All particles start at origin
+                positions[i3] = 0;
+                positions[i3 + 1] = 0;
+                positions[i3 + 2] = 0;
+                
+                colors[i3] = 0.2;
+                colors[i3 + 1] = 0.2;
+                colors[i3 + 2] = 0.2;
+            }
+
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // Create particle material
+            materials = new THREE.PointsMaterial({
+                size: config.particleSize,
+                vertexColors: true,
+                sizeAttenuation: false, // 固定大小，不随距离变化
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            points = new THREE.Points(geometry, materials);
+            scene.add(points);
+
+            // Generate text particles
+            generateTextParticles();
+            
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        // --- Generate Text Particles ---
+        function generateTextParticles() {
+            // 清空所有粒子数组
+            for (let i = 0; i < 4; i++) {
+                texts[i].particles = [];
+            }
+            
+            // 每个文本的粒子数量
+            const particlesPerText = Math.floor(PARTICLE_COUNT / 4);
+            
+            // 1. HELLO Text
+            const helloPoints = createTextParticles("HELLO", {
+                font: "bold 80px Arial",
+                scale: config.textScale * 0.7,
+                spread: 0.05
+            });
+            
+            // 2. NUIST Text
+            const nuistPoints = createTextParticles("NUIST", {
+                font: "bold 70px Arial",
+                scale: config.textScale * 0.7,
+                spread: 0.05
+            });
+            
+            // 3. I LOVE YOU with Heart
+            const lovePoints = createLoveTextParticles();
+            
+            // 分配粒子到各个文本
+            distributeParticles(helloPoints, nuistPoints, lovePoints, particlesPerText);
+        }
+        
+        function createTextParticles(text, options) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 使用合适的画布大小
+            canvas.width = 400;
+            canvas.height = 200;
+            
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = options.font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            const points = [];
+            const density = 1.5; // 降低密度，使文字更清晰
+            
+            for (let y = 0; y < canvas.height; y += density) {
+                for (let x = 0; x < canvas.width; x += density) {
+                    const index = (y * canvas.width + x) * 4;
+                    if (data[index] > 128) {
+                        const px = (x - canvas.width / 2) * 0.03 * options.scale;
+                        const py = (canvas.height / 2 - y) * 0.03 * options.scale;
+                        
+                        // 添加微小随机分布
+                        const rx = (Math.random() - 0.5) * options.spread;
+                        const ry = (Math.random() - 0.5) * options.spread;
+                        const rz = (Math.random() - 0.5) * options.spread * 0.5;
+                        
+                        points.push({
+                            x: px + rx,
+                            y: py + ry,
+                            z: rz
+                        });
+                    }
+                }
+            }
+            
+            return points;
+        }
+        
+        function createLoveTextParticles() {
+            const points = [];
+            
+            // "I LOVE YOU" 文字
+            const textPoints = createTextParticles("I ♥ U", {
+                font: "bold 70px Arial",
+                scale: config.textScale * 0.7,
+                spread: 0.05
+            });
+            
+            // 心形图案
+            const heartPoints = createHeartParticles(400);
+            
+            // 合并并稍微调整心形位置
+            heartPoints.forEach(point => {
+                point.y -= 0.5; // 向下移动一点
+            });
+            
+            return [...textPoints, ...heartPoints];
+        }
+        
+        function createHeartParticles(count) {
+            const points = [];
+            
+            for (let i = 0; i < count; i++) {
+                const t = Math.random() * Math.PI * 2;
+                
+                // 心形参数方程
+                const x = 16 * Math.pow(Math.sin(t), 3);
+                const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+                
+                // 缩小并居中
+                const scale = 0.08;
+                const px = x * scale;
+                const py = y * scale - 0.8;
+                const pz = (Math.random() - 0.5) * 0.1;
+                
+                points.push({
+                    x: px,
+                    y: py,
+                    z: pz
+                });
+            }
+            
+            return points;
+        }
+        
+        function distributeParticles(helloPoints, nuistPoints, lovePoints, particlesPerText) {
+            // 0: Idle - 所有粒子聚集在中心
+            for (let i = 0; i < particlesPerText; i++) {
+                texts[0].particles.push({
+                    x: 0,
+                    y: 0,
+                    z: 0
+                });
+            }
+            
+            // 1: HELLO
+            for (let i = 0; i < particlesPerText; i++) {
+                const sourceIdx = i % helloPoints.length;
+                const point = helloPoints[sourceIdx];
+                texts[1].particles.push({
+                    x: point.x,
+                    y: point.y,
+                    z: point.z
+                });
+            }
+            
+            // 2: NUIST
+            for (let i = 0; i < particlesPerText; i++) {
+                const sourceIdx = i % nuistPoints.length;
+                const point = nuistPoints[sourceIdx];
+                texts[2].particles.push({
+                    x: point.x,
+                    y: point.y,
+                    z: point.z
+                });
+            }
+            
+            // 3: I LOVE YOU
+            for (let i = 0; i < particlesPerText; i++) {
+                const sourceIdx = i % lovePoints.length;
+                const point = lovePoints[sourceIdx];
+                texts[3].particles.push({
+                    x: point.x,
+                    y: point.y,
+                    z: point.z
+                });
+            }
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            const time = clock.elapsedTime;
+            
+            // 平滑过渡到目标手势
+            const transitionSpeed = config.transitionSpeed;
+            currentFingerCount += (targetFingerCount - currentFingerCount) * transitionSpeed;
+            
+            // 更新粒子
+            updateParticles(deltaTime);
+            
+            // 重要：不旋转！
+            // points.rotation.y = 0;
+            // points.rotation.x = 0;
+            
+            // 更新几何体
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.color.needsUpdate = true;
+            
+            // 渲染
+            renderer.render(scene, camera);
+        }
+        
+        function updateParticles(deltaTime) {
+            const positionsArray = geometry.attributes.position.array;
+            const colorsArray = geometry.attributes.color.array;
+            
+            const targetText = Math.round(currentFingerCount);
+            const targetParticles = texts[targetText].particles;
+            const targetColor = texts[targetText].color;
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                const particleGroup = Math.floor(i / (PARTICLE_COUNT / 4));
+                
+                // 获取目标位置
+                let targetX, targetY, targetZ;
+                
+                if (particleGroup === targetText) {
+                    // 激活的粒子组
+                    const particleIdx = i % (PARTICLE_COUNT / 4);
+                    const targetParticle = targetParticles[particleIdx];
+                    
+                    if (targetParticle) {
+                        targetX = targetParticle.x;
+                        targetY = targetParticle.y;
+                        targetZ = targetParticle.z;
+                    }
+                } else {
+                    // 非激活的粒子组 - 移动到屏幕外或消失
+                    targetX = 0;
+                    targetY = 0;
+                    targetZ = -20; // 移动到屏幕外
+                }
+                
+                // 平滑移动到目标位置
+                const speed = config.transitionSpeed * 2;
+                positionsArray[i3] += (targetX - positionsArray[i3]) * speed;
+                positionsArray[i3 + 1] += (targetY - positionsArray[i3 + 1]) * speed;
+                positionsArray[i3 + 2] += (targetZ - positionsArray[i3 + 2]) * speed;
+                
+                // 更新颜色
+                let targetR, targetG, targetB;
+                
+                if (particleGroup === targetText) {
+                    // 激活的颜色
+                    targetR = targetColor.r;
+                    targetG = targetColor.g;
+                    targetB = targetColor.b;
+                } else {
+                    // 非激活的颜色 - 变暗
+                    targetR = 0.1;
+                    targetG = 0.1;
+                    targetB = 0.1;
+                }
+                
+                const colorSpeed = config.colorTransitionSpeed;
+                colorsArray[i3] += (targetR - colorsArray[i3]) * colorSpeed;
+                colorsArray[i3 + 1] += (targetG - colorsArray[i3 + 1]) * colorSpeed;
+                colorsArray[i3 + 2] += (targetB - colorsArray[i3 + 2]) * colorSpeed;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- MediaPipe Hand Tracking ---
+        const videoElement = document.getElementById('input-video');
+        const canvasElement = document.getElementById('cam-preview');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        canvasElement.width = 240;
+        canvasElement.height = 180;
+
+        // Update UI
+        function updateUI(fingerCount, confidence, fingerStates) {
+            document.getElementById('finger-count').textContent = fingerCount;
+            document.getElementById('gesture-status').textContent = 
+                fingerCount === 0 ? "No Hand" : `${fingerCount} Finger${fingerCount > 1 ? 's' : ''}`;
+            
+            const confidencePercent = Math.round(confidence * 100);
+            document.getElementById('confidence-bar').style.width = confidencePercent + '%';
+            document.getElementById('confidence-text').textContent = `Confidence: ${confidencePercent}%`;
+            
+            // Update finger indicators
+            const fingers = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+            fingers.forEach((finger, index) => {
+                const element = document.getElementById(finger);
+                if (fingerStates[index]) {
+                    element.className = 'finger-indicator finger-active';
+                } else {
+                    element.className = 'finger-indicator finger-inactive';
+                }
+            });
+        }
+
+        function onResults(results) {
+            // Hide loader
+            const loader = document.getElementById('loader');
+            if (loader.style.opacity !== '0') {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 500);
+            }
+
+            // Draw camera preview
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.image) {
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            }
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Draw hand skeleton
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+                    color: '#00ff88',
+                    lineWidth: 2
+                });
+                
+                // Enhanced finger detection
+                const detection = fingerDetector.detectFingers(landmarks);
+                
+                // Only update if confidence is high enough
+                if (detection.confidence > config.minConfidence) {
+                    // Apply hysteresis - require consistent detection
+                    gestureHistory.push(detection.count);
+                    if (gestureHistory.length > 5) {
+                        gestureHistory.shift();
+                    }
+                    
+                    // Check if last 3 detections are the same
+                    const lastThree = gestureHistory.slice(-3);
+                    const allSame = lastThree.length === 3 && 
+                                   lastThree[0] === lastThree[1] && 
+                                   lastThree[1] === lastThree[2];
+                    
+                    if (allSame && detection.count <= 3) {
+                        targetFingerCount = detection.count;
+                        gestureConfidence = detection.confidence;
+                    }
+                }
+                
+                // Draw finger tips with detection status
+                const fingerTips = [4, 8, 12, 16, 20];
+                fingerTips.forEach((tipIndex, fingerIndex) => {
+                    const tip = landmarks[tipIndex];
+                    const x = tip.x * canvasElement.width;
+                    const y = tip.y * canvasElement.height;
+                    
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x, y, 6, 0, Math.PI * 2);
+                    
+                    if (detection.details[fingerIndex]) {
+                        canvasCtx.fillStyle = '#00ff88';
+                        canvasCtx.fill();
+                        canvasCtx.strokeStyle = '#ffffff';
+                        canvasCtx.lineWidth = 2;
+                        canvasCtx.stroke();
+                    } else {
+                        canvasCtx.fillStyle = '#ff3366';
+                        canvasCtx.fill();
+                    }
+                });
+                
+                updateUI(targetFingerCount, gestureConfidence, detection.details);
+                
+            } else {
+                // No hand detected
+                targetFingerCount = 0;
+                gestureConfidence = 0;
+                updateUI(0, 0, [false, false, false, false, false]);
+            }
+            
+            canvasCtx.restore();
+        }
+
+        // Initialize MediaPipe Hands with optimized settings
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+        
+        // Optimized settings for accuracy
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.8,
+            minTrackingConfidence: 0.8,
+            selfieMode: true
+        });
+        
+        hands.onResults(onResults);
+
+        // Start camera
+        const cameraFeed = new Camera(videoElement, {
+            onFrame: async () => {
+                try {
+                    await hands.send({image: videoElement});
+                } catch (error) {
+                    // Silent error handling
+                }
+            },
+            width: 640,
+            height: 480,
+            facingMode: 'user'
+        });
+        
+        cameraFeed.start().catch(err => {
+            console.error("Camera error:", err);
+            document.getElementById('loader').innerHTML = `
+                <div style="color: #ff5555; text-align: center;">
+                    <h3>Camera Required</h3>
+                    <p>Please allow camera access</p>
+                    <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #ff3366; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        Retry
+                    </button>
+                </div>
+            `;
+        });
+
+        // Initialize 3D scene
+        initThree();
+
+    </script>
+</body>
+</html>

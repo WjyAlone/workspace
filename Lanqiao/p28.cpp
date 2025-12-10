@@ -4,12 +4,9 @@ using namespace std;
 
 int main(int argc, char const *argv[])
 {
-	int d;
-	cin >> d;
-	int week = d%7;
-	if (week==0)
-	{
-		cout << 7;
-	}else cout << d%7;
+	ios::sync_with_stdio(false);
+	cin.tie(nullptr);
+	cout.tie(nullptr);
+	
 	return 0;
 }

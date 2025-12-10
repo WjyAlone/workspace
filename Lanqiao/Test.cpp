@@ -1,12 +1,14 @@
 #include<bits/stdc++.h>
-#include<vector>
+
 using namespace std;
 
 
 int main()
 {
-	vector<int> arr1 = {1, 2};
-	vector<int> arr2 = {1, 2};
-	cout << arr1+arr2;
+	long long num = 123456789;
+
+	int a = num/1e6;
+	int b = a*1e6;
+	cout << b;
 	return 0;
 } 
