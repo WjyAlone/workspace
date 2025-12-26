@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交互式粒子圣诞树</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #0a0a2a, #1a0033);
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #header {
+            text-align: center;
+            padding: 15px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+        }
+        
+        #header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #ff3366, #33ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 10px rgba(255, 51, 102, 0.3);
+        }
+        
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff3366, #ff9933);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 0 15px rgba(255, 51, 102, 0.5);
+        }
+        
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(255, 51, 102, 0.8);
+        }
+        
+        #status {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 15px;
+            border-radius: 15px;
+            margin-top: 10px;
+            display: inline-block;
+        }
+        
+        #main {
+            flex: 1;
+            display: flex;
+            position: relative;
+        }
+        
+        #canvasContainer {
+            flex: 1;
+            position: relative;
+        }
+        
+        #webcamContainer {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            height: 240px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+            border: 2px solid #33ccff;
+            z-index: 50;
+        }
+        
+        #webcamVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        
+        #gestureCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gestureStatus {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            border-left: 4px solid #33ccff;
+        }
+        
+        #photosContainer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .photo-frame {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+            border: 3px solid #ffcc00;
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            background: black;
+        }
+        
+        .photo-frame img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .photo-frame.enlarged {
+            width: 250px;
+            height: 250px;
+            z-index: 100;
+            box-shadow: 0 0 30px rgba(255, 204, 0, 1);
+            border: 5px solid #ff3366;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 300px;
+            border-left: 4px solid #ff3366;
+        }
+        
+        #instructions h3 {
+            margin-bottom: 10px;
+            color: #33ccff;
+        }
+        
+        #instructions ul {
+            list-style: none;
+        }
+        
+        #instructions li {
+            margin-bottom: 8px;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        #instructions li:before {
+            content: "🎄";
+            position: absolute;
+            left: 0;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top: 5px solid #ff3366;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #error {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1001;
+            max-width: 80%;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <h1>🎄 交互式粒子圣诞树 🎄</h1>
+            <div id="controls">
+                <button id="selectFolderBtn">📁 选择图片文件夹</button>
+                <button id="startCameraBtn">📷 开启摄像头</button>
+                <button id="resetTreeBtn">🔄 重置圣诞树</button>
+                <div id="status">状态: 等待初始化...</div>
+            </div>
+        </div>
+        
+        <div id="main">
+            <div id="canvasContainer">
+                <canvas id="mainCanvas"></canvas>
+            </div>
+            
+            <div id="webcamContainer" class="hidden">
+                <video id="webcamVideo" autoplay playsinline></video>
+                <canvas id="gestureCanvas"></canvas>
+                <div id="gestureStatus">手势: 检测中...</div>
+            </div>
+            
+            <div id="photosContainer"></div>
+            
+            <div id="instructions">
+                <h3>手势控制说明:</h3>
+                <ul>
+                    <li>🤚 手掌展开: 展开圣诞树，照片排成直线</li>
+                    <li>✊ 手握拳: 保持圣诞树状态</li>
+                    <li>👌 OK手势: 放大最前面的照片</li>
+                    <li>👋 手部移动: 控制圣诞树旋转和照片水平移动</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>正在初始化...</div>
+    </div>
+    
+    <div id="error" class="hidden"></div>
+
+    <!-- 引入手势识别库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+
+    <script>
+        // 全局变量
+        let camera = null;
+        let scene = null;
+        let renderer = null;
+        let treeParticles = [];
+        let photos = [];
+        let selectedPhotos = [];
+        let photoFrames = [];
+        let handDetector = null;
+        let isCameraActive = false;
+        let lastGesture = '';
+        let isHandDetected = false;
+        let handPosition = { x: 0, y: 0 };
+        let treeRotation = { x: 0, y: 0 };
+        let treeState = 'folded'; // 'folded' 或 'expanded'
+        let targetTreeRotation = { x: 0, y: 0 };
+        let photoPositions = [];
+        const PHOTO_COUNT = 8;
+        let selectedFolder = null;
+        let isOKGesture = false;
+        let enlargedPhotoIndex = -1;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', init);
+
+        async function init() {
+            try {
+                // 初始化3D场景
+                initThreeJS();
+                
+                // 设置事件监听器
+                setupEventListeners();
+                
+                // 创建初始圣诞树
+                createChristmasTree();
+                
+                // 隐藏加载界面
+                setTimeout(() => {
+                    document.getElementById('loading').classList.add('hidden');
+                }, 1000);
+                
+                updateStatus('就绪 - 请选择图片文件夹并开启摄像头');
+                
+            } catch (error) {
+                showError('初始化失败: ' + error.message);
+            }
+        }
+
+        function initThreeJS() {
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a2a);
+            
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 15);
+            
+            // 创建渲染器
+            const canvas = document.getElementById('mainCanvas');
+            renderer = new THREE.WebGLRenderer({ 
+                canvas,
+                antialias: true,
+                alpha: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            // 添加环境光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            
+            // 添加点光源
+            const pointLight = new THREE.PointLight(0xff3366, 1, 100);
+            pointLight.position.set(10, 10, 10);
+            scene.add(pointLight);
+            
+            // 窗口大小调整处理
+            window.addEventListener('resize', onWindowResize);
+            
+            // 开始动画循环
+            animate();
+        }
+
+        function createChristmasTree() {
+            // 清除现有的粒子
+            treeParticles.forEach(particle => {
+                scene.remove(particle);
+            });
+            treeParticles = [];
+            
+            const particleCount = 1500;
+            const treeHeight = 8;
+            const treeWidth = 4;
+            
+            // 创建粒子材质
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0x33ff33,
+                size: 0.1,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+            
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            
+            for (let i = 0; i < particleCount; i++) {
+                // 创建锥形分布（圣诞树形状）
+                const radius = Math.random() * treeWidth;
+                const angle = Math.random() * Math.PI * 2;
+                const height = Math.random() * treeHeight;
+                const y = height - treeHeight / 2;
+                
+                // 根据高度调整半径，形成锥形
+                const adjustedRadius = radius * (1 - height / treeHeight);
+                const x = Math.cos(angle) * adjustedRadius;
+                const z = Math.sin(angle) * adjustedRadius;
+                
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+                
+                // 设置颜色（从下到上渐变）
+                const hue = 0.3 + (height / treeHeight) * 0.2; // 绿色到浅绿色
+                const saturation = 0.8;
+                const lightness = 0.5 + Math.random() * 0.3;
+                
+                const rgb = hslToRgb(hue, saturation, lightness);
+                colors[i * 3] = rgb[0];
+                colors[i * 3 + 1] = rgb[1];
+                colors[i * 3 + 2] = rgb[2];
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const particles = new THREE.Points(geometry, particleMaterial);
+            scene.add(particles);
+            treeParticles.push(particles);
+            
+            // 添加树顶星星
+            const starGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const starMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffff00,
+                emissive: 0xffff00,
+                emissiveIntensity: 2
+            });
+            const star = new THREE.Mesh(starGeometry, starMaterial);
+            star.position.y = treeHeight / 2 + 0.5;
+            scene.add(star);
+            treeParticles.push(star);
+        }
+
+        function setupEventListeners() {
+            document.getElementById('selectFolderBtn').addEventListener('click', selectFolder);
+            document.getElementById('startCameraBtn').addEventListener('click', startCamera);
+            document.getElementById('resetTreeBtn').addEventListener('click', resetTree);
+        }
+
+        async function selectFolder() {
+            try {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.webkitdirectory = true;
+                input.multiple = true;
+                input.accept = 'image/*';
+                
+                input.onchange = async (e) => {
+                    const files = Array.from(e.target.files);
+                    const imageFiles = files.filter(file => 
+                        file.type.startsWith('image/')
+                    );
+                    
+                    if (imageFiles.length === 0) {
+                        showError('文件夹中没有找到图片文件');
+                        return;
+                    }
+                    
+                    photos = imageFiles;
+                    selectRandomPhotos();
+                    updateStatus(`已加载 ${photos.length} 张图片，选择了 ${selectedPhotos.length} 张`);
+                };
+                
+                input.click();
+            } catch (error) {
+                showError('选择文件夹失败: ' + error.message);
+            }
+        }
+
+        function selectRandomPhotos() {
+            if (photos.length === 0) return;
+            
+            selectedPhotos = [];
+            const count = Math.min(PHOTO_COUNT, photos.length);
+            const shuffled = [...photos].sort(() => 0.5 - Math.random());
+            
+            for (let i = 0; i < count; i++) {
+                selectedPhotos.push(shuffled[i]);
+            }
+            
+            displayPhotos();
+        }
+
+        function displayPhotos() {
+            const container = document.getElementById('photosContainer');
+            container.innerHTML = '';
+            photoFrames = [];
+            
+            selectedPhotos.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const frame = document.createElement('div');
+                    frame.className = 'photo-frame';
+                    frame.style.zIndex = index;
+                    
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.alt = `Photo ${index + 1}`;
+                    
+                    frame.appendChild(img);
+                    container.appendChild(frame);
+                    photoFrames.push(frame);
+                    
+                    // 初始位置（在树下）
+                    updatePhotoPosition(index, false);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function updatePhotoPosition(index, expanded) {
+            if (!photoFrames[index]) return;
+            
+            const frame = photoFrames[index];
+            
+            if (expanded) {
+                // 展开状态：水平排列，高度浮动
+                const spacing = window.innerWidth / (selectedPhotos.length + 1);
+                const x = (index + 1) * spacing - window.innerWidth / 2;
+                const y = Math.sin(Date.now() * 0.001 + index) * 50 - 100;
+                
+                frame.style.transform = `translate(${x}px, ${y}px)`;
+                frame.style.transition = 'all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+                
+                // 根据手势位置调整水平位置
+                if (isHandDetected) {
+                    const offset = (handPosition.x - 0.5) * 500;
+                    frame.style.transform = `translate(${x + offset}px, ${y}px)`;
+                }
+            } else {
+                // 折叠状态：围绕圣诞树
+                const angle = (index / selectedPhotos.length) * Math.PI * 2;
+                const radius = 200 + Math.sin(Date.now() * 0.002 + index) * 20;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius * 0.5;
+                
+                frame.style.transform = `translate(calc(50% + ${x}px), calc(50% + ${y}px))`;
+                frame.style.transition = 'all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+            }
+            
+            // 处理放大效果
+            if (enlargedPhotoIndex === index) {
+                frame.classList.add('enlarged');
+                frame.style.zIndex = 1000;
+            } else {
+                frame.classList.remove('enlarged');
+                frame.style.zIndex = index;
+            }
+        }
+
+        async function startCamera() {
+            try {
+                updateStatus('正在初始化摄像头...');
+                
+                const video = document.getElementById('webcamVideo');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+                
+                video.srcObject = stream;
+                document.getElementById('webcamContainer').classList.remove('hidden');
+                isCameraActive = true;
+                
+                // 等待视频加载
+                await new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                
+                // 初始化手势识别
+                await initHandDetection();
+                
+                updateStatus('摄像头已开启 - 开始手势识别');
+                
+            } catch (error) {
+                showError('摄像头开启失败: ' + error.message);
+            }
+        }
+
+        async function initHandDetection() {
+            try {
+                // 加载TensorFlow模型
+                await tf.setBackend('webgl');
+                
+                // 加载MediaPipe Hands模型
+                const hands = new Hands({
+                    locateFile: (file) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                    }
+                });
+                
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                hands.onResults((results) => {
+                    processHandResults(results);
+                });
+                
+                // 开始处理视频帧
+                const video = document.getElementById('webcamVideo');
+                const canvasElement = document.getElementById('gestureCanvas');
+                const canvasCtx = canvasElement.getContext('2d');
+                
+                canvasElement.width = video.videoWidth;
+                canvasElement.height = video.videoHeight;
+                
+                async function processFrame() {
+                    if (!isCameraActive) return;
+                    
+                    canvasCtx.save();
+                    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                    canvasCtx.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+                    
+                    await hands.send({ image: video });
+                    
+                    canvasCtx.restore();
+                    
+                    requestAnimationFrame(processFrame);
+                }
+                
+                processFrame();
+                
+            } catch (error) {
+                console.error('手势识别初始化失败:', error);
+                updateStatus('手势识别初始化失败，使用模拟手势');
+                startSimulatedGestures();
+            }
+        }
+
+        function processHandResults(results) {
+            const canvasElement = document.getElementById('gestureCanvas');
+            const canvasCtx = canvasElement.getContext('2d');
+            
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandDetected = true;
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 绘制手部关键点
+                canvasCtx.strokeStyle = '#00ff00';
+                canvasCtx.lineWidth = 2;
+                
+                // 绘制连接线
+                const connections = [
+                    [0, 1], [1, 2], [2, 3], [3, 4], // 拇指
+                    [0, 5], [5, 6], [6, 7], [7, 8], // 食指
+                    [0, 9], [9, 10], [10, 11], [11, 12], // 中指
+                    [0, 13], [13, 14], [14, 15], [15, 16], // 无名指
+                    [0, 17], [17, 18], [18, 19], [19, 20], // 小指
+                    [5, 9], [9, 13], [13, 17] // 手掌
+                ];
+                
+                connections.forEach(([start, end]) => {
+                    const startPoint = landmarks[start];
+                    const endPoint = landmarks[end];
+                    
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(startPoint.x * canvasElement.width, startPoint.y * canvasElement.height);
+                    canvasCtx.lineTo(endPoint.x * canvasElement.width, endPoint.y * canvasElement.height);
+                    canvasCtx.stroke();
+                });
+                
+                // 绘制关键点
+                landmarks.forEach((landmark, index) => {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(
+                        landmark.x * canvasElement.width,
+                        landmark.y * canvasElement.height,
+                        3, 0, 2 * Math.PI
+                    );
+                    canvasCtx.fillStyle = index === 8 ? '#ff0000' : '#00ffff';
+                    canvasCtx.fill();
+                });
+                
+                // 计算手部位置
+                handPosition.x = landmarks[9].x; // 中指根部
+                handPosition.y = landmarks[9].y;
+                
+                // 识别手势
+                detectGesture(landmarks);
+                
+                // 更新手势状态显示
+                document.getElementById('gestureStatus').textContent = 
+                    `手势: ${lastGesture} | X: ${handPosition.x.toFixed(2)} | Y: ${handPosition.y.toFixed(2)}`;
+                
+            } else {
+                isHandDetected = false;
+                lastGesture = '未检测到手';
+                document.getElementById('gestureStatus').textContent = '手势: 未检测到手';
+            }
+        }
+
+        function detectGesture(landmarks) {
+            // 计算指尖到手掌根部的距离
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+            const wrist = landmarks[0];
+            
+            // 计算手指展开程度
+            const fingerDistances = [
+                distance(thumbTip, wrist),
+                distance(indexTip, wrist),
+                distance(middleTip, wrist),
+                distance(ringTip, wrist),
+                distance(pinkyTip, wrist)
+            ];
+            
+            const avgDistance = fingerDistances.reduce((a, b) => a + b) / fingerDistances.length;
+            
+            // 检测手掌展开
+            let fingersExtended = 0;
+            fingerDistances.forEach(dist => {
+                if (dist > avgDistance * 0.8) {
+                    fingersExtended++;
+                }
+            });
+            
+            // 检测OK手势（食指和拇指接触）
+            const thumbIndexDistance = distance(thumbTip, indexTip);
+            const isThumbIndexClose = thumbIndexDistance < 0.05;
+            
+            // 检测握拳
+            const isFist = fingersExtended <= 1;
+            
+            // 更新手势状态
+            if (isThumbIndexClose && fingersExtended >= 3) {
+                lastGesture = '👌 OK手势';
+                if (!isOKGesture) {
+                    isOKGesture = true;
+                    toggleEnlargePhoto();
+                }
+            } else {
+                isOKGesture = false;
+                
+                if (fingersExtended >= 4) {
+                    lastGesture = '🤚 手掌展开';
+                    treeState = 'expanded';
+                } else if (isFist) {
+                    lastGesture = '✊ 手握拳';
+                    treeState = 'folded';
+                } else {
+                    lastGesture = '🤏 其他手势';
+                }
+            }
+            
+            // 根据手部位置控制旋转
+            if (isHandDetected) {
+                targetTreeRotation.y = (handPosition.x - 0.5) * Math.PI;
+                targetTreeRotation.x = (handPosition.y - 0.5) * Math.PI * 0.5;
+            }
+        }
+
+        function distance(point1, point2) {
+            return Math.sqrt(
+                Math.pow(point1.x - point2.x, 2) +
+                Math.pow(point1.y - point2.y, 2) +
+                Math.pow(point1.z - point2.z, 2)
+            );
+        }
+
+        function toggleEnlargePhoto() {
+            if (selectedPhotos.length === 0) return;
+            
+            if (enlargedPhotoIndex >= 0) {
+                enlargedPhotoIndex = -1;
+            } else {
+                // 放大最前面的照片
+                enlargedPhotoIndex = 0;
+            }
+        }
+
+        function startSimulatedGestures() {
+            // 模拟手势用于测试
+            let gestureIndex = 0;
+            const gestures = ['🤚 手掌展开', '✊ 手握拳', '👌 OK手势'];
+            
+            setInterval(() => {
+                if (!isCameraActive) return;
+                
+                isHandDetected = true;
+                handPosition.x = 0.5 + Math.sin(Date.now() * 0.001) * 0.3;
+                handPosition.y = 0.5 + Math.cos(Date.now() * 0.001) * 0.2;
+                
+                lastGesture = gestures[gestureIndex];
+                gestureIndex = (gestureIndex + 1) % gestures.length;
+                
+                // 模拟手势效果
+                if (lastGesture === '🤚 手掌展开') {
+                    treeState = 'expanded';
+                } else if (lastGesture === '✊ 手握拳') {
+                    treeState = 'folded';
+                } else if (lastGesture === '👌 OK手势') {
+                    toggleEnlargePhoto();
+                }
+                
+                targetTreeRotation.y = (handPosition.x - 0.5) * Math.PI;
+                targetTreeRotation.x = (handPosition.y - 0.5) * Math.PI * 0.5;
+                
+                document.getElementById('gestureStatus').textContent = 
+                    `手势: ${lastGesture} (模拟) | X: ${handPosition.x.toFixed(2)} | Y: ${handPosition.y.toFixed(2)}`;
+                
+            }, 3000);
+        }
+
+        function resetTree() {
+            treeState = 'folded';
+            targetTreeRotation = { x: 0, y: 0 };
+            enlargedPhotoIndex = -1;
+            selectRandomPhotos();
+            updateStatus('圣诞树已重置');
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // 平滑旋转过渡
+            const rotationSpeed = 0.05;
+            treeRotation.x += (targetTreeRotation.x - treeRotation.x) * rotationSpeed;
+            treeRotation.y += (targetTreeRotation.y - treeRotation.y) * rotationSpeed;
+            
+            // 应用旋转到圣诞树粒子
+            treeParticles.forEach(particle => {
+                particle.rotation.x = treeRotation.x;
+                particle.rotation.y = treeRotation.y;
+            });
+            
+            // 添加粒子动画
+            if (treeParticles[0]) {
+                const positions = treeParticles[0].geometry.attributes.position.array;
+                const time = Date.now() * 0.001;
+                
+                for (let i = 0; i < positions.length; i += 3) {
+                    // 添加轻微的浮动效果
+                    positions[i + 1] += Math.sin(time + positions[i] + positions[i + 2]) * 0.001;
+                }
+                
+                treeParticles[0].geometry.attributes.position.needsUpdate = true;
+                
+                // 随机闪烁效果
+                const colors = treeParticles[0].geometry.attributes.color.array;
+                for (let i = 0; i < colors.length; i += 3) {
+                    const flicker = 0.9 + Math.random() * 0.2;
+                    colors[i] *= flicker;
+                    colors[i + 1] *= flicker;
+                    colors[i + 2] *= flicker;
+                }
+                treeParticles[0].geometry.attributes.color.needsUpdate = true;
+            }
+            
+            // 更新照片位置
+            photoFrames.forEach((frame, index) => {
+                updatePhotoPosition(index, treeState === 'expanded');
+            });
+            
+            // 渲染场景
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = `状态: ${message}`;
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            
+            setTimeout(() => {
+                errorDiv.classList.add('hidden');
+            }, 5000);
+        }
+
+        // HSL转RGB辅助函数
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return [r, g, b];
+        }
+
+        // 防止右键菜单
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+    </script>
+</body>
+</html>

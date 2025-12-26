@@ -2,13 +2,14 @@
 
 using namespace std;
 
+void Merge(int A[]){
+	A[2] = 8;
+}
 
 int main()
 {
-	long long num = 123456789;
-
-	int a = num/1e6;
-	int b = a*1e6;
-	cout << b;
+	int A[] = {4, 8, 2};
+	Merge(A);
+	cout << A[2];
 	return 0;
 } 
