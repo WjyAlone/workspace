@@ -2,14 +2,16 @@
 
 using namespace std;
 
-void Merge(int A[]){
-	A[2] = 8;
+void rotate(vector<int>& v){
+	v[2] = 2;
 }
 
 int main()
 {
-	int A[] = {4, 8, 2};
-	Merge(A);
-	cout << A[2];
+	
+	int arr[5] = {4, 5, 6, 7, 8};
+	cout << arr[2] << endl;
+	rotate(arr);
+	cout << arr[2] << endl;
 	return 0;
 } 
